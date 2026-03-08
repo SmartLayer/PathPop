@@ -206,8 +206,13 @@ def copy_and_exit(path):
     rel = os.path.relpath(path, initial_cwd)
     quoted = shlex.quote(rel)
     try:
-        subprocess.Popen(['wl-copy', '--', quoted],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if is_wayland:
+            subprocess.Popen(['wl-copy', '--', quoted],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen(['xclip', '-selection', 'clipboard'],
+                             stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).communicate(quoted.encode())
     except OSError:
         pass
     root.destroy()
@@ -244,6 +249,21 @@ while i < len(args):
         if i < len(args):
             test_index = int(args[i])
     i += 1
+
+# --- Display server detection ---
+is_wayland = bool(os.environ.get('WAYLAND_DISPLAY'))
+if is_wayland:
+    clip_cmd = 'wl-copy'
+else:
+    clip_cmd = 'xclip'
+if not any(os.access(os.path.join(d, clip_cmd), os.X_OK) for d in os.environ.get('PATH', '').split(':')):
+    msg = f"pathpop: required clipboard tool '{clip_cmd}' not found"
+    syslog.syslog(syslog.LOG_ERR, msg)
+    err_root = tk.Tk()
+    err_root.withdraw()
+    messagebox.showerror("PathPop", msg)
+    err_root.destroy()
+    sys.exit(1)
 
 # --- CWD detection ---
 time.sleep(0.2)

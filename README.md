@@ -23,15 +23,24 @@ The selected path is:
 
 ## Requirements
 
-Only tested on **Ubuntu 25.10** with **GNOME 49** (Wayland).
+Only tested on **Ubuntu 25.10** with **GNOME 49** (X11 and Wayland).
 
+**Wayland:**
 ```
 sudo apt install python3-tk wl-clipboard ydotool
 ```
 
+**X11:**
+```
+sudo apt install python3-tk xclip ydotool
+```
+
 - `python3-tk` — Python Tk bindings (the UI)
-- `wl-clipboard` — `wl-copy`, copies path to Wayland clipboard
+- `wl-clipboard` — `wl-copy`, copies path to clipboard (Wayland)
+- `xclip` — copies path to clipboard (X11)
 - `ydotool` — simulates Ctrl+Shift+V to paste into the terminal after the window closes
+
+PathPop auto-detects X11 vs Wayland via `WAYLAND_DISPLAY` and uses the appropriate clipboard tool. If the required tool is missing, it shows an error dialog and exits.
 
 AT-SPI (`gir1.2-atspi-2.0`) is used for CWD detection and is installed by default on Ubuntu with GNOME.
 
