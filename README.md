@@ -72,3 +72,11 @@ export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 ## CWD detection on GNOME Wayland
 
 When launched from a keyboard shortcut, fzf.py reads the active terminal's window title via AT-SPI (`gi.repository.Atspi`) and extracts the directory path from it. GNOME Terminal sets the title to the shell's cwd by default. A small delay (200ms) is used before querying AT-SPI to let the window manager settle after processing the shortcut key.
+
+### Why AT-SPI and not /proc
+
+Since this tool is launched by a global shortcut key (not from a terminal), its parent process is gnome-shell — not the user's shell. Reading `/proc/ppid/cwd` would give gnome-shell's working directory, not the terminal's. The CWD must come from the terminal's window title.
+
+### Terminal compatibility
+
+AT-SPI only works with terminals that expose accessibility info. **GNOME Terminal** works. **cool-retro-term** (Qt/QML) does not appear in AT-SPI at all, so CWD detection fails even though its window title contains the correct path (set by `.bashrc`).

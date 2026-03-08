@@ -7,6 +7,12 @@
 #   python3 fzf.py [--test N]
 #
 # Detects CWD of the active terminal via AT-SPI window title (GNOME Wayland).
+#
+# NOTE: This tool is launched by a global shortcut key, NOT from a terminal.
+# The whole point is that it works inside programs that own the terminal
+# (Claude Code, vim, REPLs, etc.) where shell-based fzf cannot run.
+# Therefore /proc/ppid tricks won't work — the parent process is gnome-shell,
+# not the user's shell. CWD must come from the terminal's window title.
 
 import sys
 import os
@@ -45,23 +51,48 @@ def detect_cwd():
     from gi.repository import Atspi
     Atspi.init()
     desktop = Atspi.get_desktop(0)
+    debug_lines = []
+    active_found = False
     for i in range(desktop.get_child_count()):
         app = desktop.get_child_at_index(i)
         if not app:
             continue
+        app_name = app.get_name() or "(unnamed)"
         for j in range(app.get_child_count()):
             win = app.get_child_at_index(j)
-            if win and win.get_state_set().contains(Atspi.StateType.ACTIVE):
+            if not win:
+                continue
+            states = win.get_state_set()
+            is_active = states.contains(Atspi.StateType.ACTIVE)
+            is_focused = states.contains(Atspi.StateType.FOCUSED)
+            win_title = win.get_name() or "(no title)"
+            win_role = win.get_role_name() or "(no role)"
+            marker = " ** ACTIVE **" if is_active else ""
+            if is_focused:
+                marker += " FOCUSED"
+            debug_lines.append(f"  app={app_name!r} win={win_title!r} role={win_role!r}{marker}")
+            if is_active:
+                active_found = True
                 title = win.get_name()
                 if not title:
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
                     return None, "active window has no title"
                 m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
                 if not m:
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
                     return None, f"no path found in title: {title!r}"
                 path = os.path.expanduser(m.group(1))
                 if not os.path.isdir(path):
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
                     return None, f"path from title is not a directory: {path!r} (title: {title!r})"
+                debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                print(debug_msg, file=sys.stderr)
                 return path, None
+    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+    print(debug_msg, file=sys.stderr)
     return None, "no active window found via AT-SPI"
 
 
