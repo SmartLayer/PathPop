@@ -1,4 +1,4 @@
-# fzf.py
+# PathPop
 
 A keyboard-driven file selector for the terminal, built in Python/Tk. Bind it to a global shortcut key and it pops up a file browser rooted at whatever directory your terminal is in. Pick a file or folder, hit Enter, and the path is typed into your terminal automatically.
 
@@ -8,12 +8,12 @@ You're working in a terminal and need to reference a file path. The standard too
 
 The moment you're inside something that already owns the terminal — Claude Code, a REPL, `vim`, `docker exec`, an SSH session within an SSH session — fzf can't draw its picker. You'd have to exit what you're doing, run fzf, copy the path, go back in, and paste it. Or just give up and type the path by hand.
 
-fzf.py solves this by being a GUI window (Tk) bound to a global shortcut key. It doesn't need the terminal at all. It pops up over whatever you're doing, you pick a file, and the path appears at your cursor — whether that cursor is in bash, Claude Code, vim's command line, or anything else.
+PathPop solves this by being a GUI window (Tk) bound to a global shortcut key. It doesn't need the terminal at all. It pops up over whatever you're doing, you pick a file, and the path appears at your cursor — whether that cursor is in bash, Claude Code, vim's command line, or anything else.
 
 ## How it works
 
 1. Press your GNOME shortcut key
-2. fzf.py opens, showing the contents of the directory your terminal was in
+2. PathPop opens, showing the contents of the directory your terminal was in
 3. Type to filter, arrow keys to navigate, `..` to go up
 4. Hit Enter — the window closes and the path appears at your cursor
 
@@ -41,7 +41,7 @@ Bind to a GNOME keyboard shortcut:
 
 ```
 Settings > Keyboard > Custom Shortcuts
-Command: python3 /path/to/fzf.py
+Command: python3 /path/to/pathpop.py
 ```
 
 ### Terminal title
@@ -71,7 +71,7 @@ export CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1
 
 ## CWD detection on GNOME Wayland
 
-When launched from a keyboard shortcut, fzf.py reads the active terminal's window title via AT-SPI (`gi.repository.Atspi`) and extracts the directory path from it. GNOME Terminal sets the title to the shell's cwd by default. A small delay (200ms) is used before querying AT-SPI to let the window manager settle after processing the shortcut key.
+When launched from a keyboard shortcut, PathPop reads the active terminal's window title via AT-SPI (`gi.repository.Atspi`) and extracts the directory path from it. GNOME Terminal sets the title to the shell's cwd by default. A small delay (200ms) is used before querying AT-SPI to let the window manager settle after processing the shortcut key.
 
 ### Why AT-SPI and not /proc
 
