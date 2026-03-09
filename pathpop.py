@@ -19,12 +19,27 @@ import os
 import re
 import shlex
 import subprocess
+import logging
+import logging.handlers
 import syslog
 import time
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import tkinter.ttk as ttk
 import tkinter.font as tkfont
+
+# --- Logging ---
+debug_mode = os.environ.get('PATHPOP_DEBUG', '') != ''
+log = logging.getLogger('pathpop')
+if debug_mode:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s %(levelname)s %(message)s',
+        handlers=[logging.handlers.SysLogHandler(address='/dev/log',
+                                                  facility=logging.handlers.SysLogHandler.LOG_USER)]
+    )
+else:
+    log.addHandler(logging.NullHandler())
 
 # --- Globals ---
 test_mode = False
@@ -45,7 +60,10 @@ filter_entry = None
 
 def detect_cwd():
     """Read the focused window title via AT-SPI and extract a directory path.
-    Returns (path, None) on success or (None, error_message) on failure."""
+    Returns (path, None) on success or (None, error_message) on failure.
+    NOTE: This intentionally does NOT fall back to other windows when the
+    active window has no path.  Falling back would silently mask the real
+    problem (wrong window focused) and confuse the user."""
     import gi
     gi.require_version('Atspi', '2.0')
     from gi.repository import Atspi
@@ -77,12 +95,12 @@ def detect_cwd():
                 if not title:
                     debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
                     print(debug_msg, file=sys.stderr)
-                    return None, "active window has no title"
+                    return None, f"active window ({app_name!r}) has no title"
                 m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
                 if not m:
                     debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
                     print(debug_msg, file=sys.stderr)
-                    return None, f"no path found in title: {title!r}"
+                    return None, f"no path found in active window ({app_name!r}) title: {title!r}"
                 path = os.path.expanduser(m.group(1))
                 if not os.path.isdir(path):
                     debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
@@ -205,23 +223,41 @@ def force_select():
 def copy_and_exit(path):
     rel = os.path.relpath(path, initial_cwd)
     quoted = shlex.quote(rel)
+    log.debug("copy_and_exit: path=%r rel=%r quoted=%r", path, rel, quoted)
     try:
         if is_wayland:
-            subprocess.Popen(['wl-copy', '--', quoted],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(['wl-copy', '--', quoted],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate(timeout=5)
+            if proc.returncode != 0:
+                log.error("wl-copy failed (rc=%d): %s", proc.returncode, stderr.decode(errors='replace'))
+            else:
+                log.debug("wl-copy succeeded")
         else:
-            subprocess.Popen(['xclip', '-selection', 'clipboard'],
+            proc = subprocess.Popen(['xclip', '-selection', 'clipboard'],
                              stdin=subprocess.PIPE,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).communicate(quoted.encode())
-    except OSError:
-        pass
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate(quoted.encode(), timeout=5)
+            if proc.returncode != 0:
+                log.error("xclip failed (rc=%d): %s", proc.returncode, stderr.decode(errors='replace'))
+            else:
+                log.debug("xclip succeeded")
+    except OSError as e:
+        log.error("clipboard copy OSError: %s", e)
+    except subprocess.TimeoutExpired:
+        log.error("clipboard copy timed out")
+        proc.kill()
     root.destroy()
     time.sleep(0.3)
     try:
-        subprocess.run(['ydotool', 'key', '29:1', '42:1', '47:1', '47:0', '42:0', '29:0'],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        pass
+        result = subprocess.run(['ydotool', 'key', '29:1', '42:1', '47:1', '47:0', '42:0', '29:0'],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            log.error("ydotool paste failed (rc=%d): %s", result.returncode, result.stderr.decode(errors='replace'))
+        else:
+            log.debug("ydotool paste keystroke sent")
+    except OSError as e:
+        log.error("ydotool OSError: %s", e)
     if test_mode:
         time.sleep(0.1)
         try:
@@ -268,6 +304,7 @@ if not any(os.access(os.path.join(d, clip_cmd), os.X_OK) for d in os.environ.get
 # --- CWD detection ---
 time.sleep(0.2)
 cwd, err = detect_cwd()
+log.debug("detect_cwd: cwd=%r err=%r", cwd, err)
 if not cwd:
     msg = f"fzf: {err}"
     syslog.syslog(syslog.LOG_ERR, msg)
