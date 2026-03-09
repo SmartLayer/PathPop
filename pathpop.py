@@ -58,36 +58,19 @@ filter_entry = None
 
 # --- CWD Detection ---
 
-TERMINAL_APPS = {'gnome-terminal-server', 'gnome-terminal', 'kitty', 'alacritty',
-                  'terminator', 'tilix', 'konsole', 'xterm', 'foot', 'wezterm',
-                  'xfce4-terminal', 'mate-terminal', 'sakura', 'urxvt', 'st'}
-
-
-def _extract_path(title):
-    """Try to extract a directory path from a window title. Returns path or None."""
-    if not title:
-        return None
-    m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
-    if not m:
-        return None
-    path = os.path.expanduser(m.group(1))
-    if not os.path.isdir(path):
-        return None
-    return path
-
-
 def detect_cwd():
     """Read the focused window title via AT-SPI and extract a directory path.
     Returns (path, None) on success or (None, error_message) on failure.
-    Collects all ACTIVE windows and prefers known terminal apps, so that
-    a stale ACTIVE flag on Chrome doesn't shadow the real terminal."""
+    NOTE: This intentionally does NOT fall back to other windows when the
+    active window has no path.  Falling back would silently mask the real
+    problem (wrong window focused) and confuse the user."""
     import gi
     gi.require_version('Atspi', '2.0')
     from gi.repository import Atspi
     Atspi.init()
     desktop = Atspi.get_desktop(0)
     debug_lines = []
-    active_windows = []  # list of (app_name, title, is_terminal)
+    active_found = False
     for i in range(desktop.get_child_count()):
         app = desktop.get_child_at_index(i)
         if not app:
@@ -107,23 +90,28 @@ def detect_cwd():
                 marker += " FOCUSED"
             debug_lines.append(f"  app={app_name!r} win={win_title!r} role={win_role!r}{marker}")
             if is_active:
-                is_terminal = app_name.lower() in TERMINAL_APPS
-                active_windows.append((app_name, win.get_name(), is_terminal))
+                active_found = True
+                title = win.get_name()
+                if not title:
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
+                    return None, f"active window ({app_name!r}) has no title"
+                m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
+                if not m:
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
+                    return None, f"no path found in active window ({app_name!r}) title: {title!r}"
+                path = os.path.expanduser(m.group(1))
+                if not os.path.isdir(path):
+                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                    print(debug_msg, file=sys.stderr)
+                    return None, f"path from title is not a directory: {path!r} (title: {title!r})"
+                debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
+                print(debug_msg, file=sys.stderr)
+                return path, None
     debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
     print(debug_msg, file=sys.stderr)
-    if not active_windows:
-        return None, "no active window found via AT-SPI"
-    # Prefer terminal windows over non-terminal ones
-    active_windows.sort(key=lambda x: (not x[2],))
-    for app_name, title, is_terminal in active_windows:
-        path = _extract_path(title)
-        if path:
-            return path, None
-    # None of the active windows had a valid path — report the best candidate
-    best = active_windows[0]
-    if not best[1]:
-        return None, f"active window ({best[0]!r}) has no title"
-    return None, f"no path found in active window ({best[0]!r}) title: {best[1]!r}"
+    return None, "no active window found via AT-SPI"
 
 
 # --- Logic ---
