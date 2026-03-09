@@ -226,13 +226,12 @@ def copy_and_exit(path):
     log.debug("copy_and_exit: path=%r rel=%r quoted=%r", path, rel, quoted)
     try:
         if is_wayland:
-            proc = subprocess.Popen(['wl-copy', '--', quoted],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate(timeout=5)
-            if proc.returncode != 0:
-                log.error("wl-copy failed (rc=%d): %s", proc.returncode, stderr.decode(errors='replace'))
-            else:
-                log.debug("wl-copy succeeded")
+            proc = subprocess.Popen(['wl-copy'],
+                             stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc.stdin.write(quoted.encode())
+            proc.stdin.close()
+            log.debug("wl-copy started (stdin mode)")
         else:
             proc = subprocess.Popen(['xclip', '-selection', 'clipboard'],
                              stdin=subprocess.PIPE,
