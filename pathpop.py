@@ -70,48 +70,41 @@ def detect_cwd():
     Atspi.init()
     desktop = Atspi.get_desktop(0)
     debug_lines = []
-    active_found = False
-    for i in range(desktop.get_child_count()):
-        app = desktop.get_child_at_index(i)
-        if not app:
-            continue
-        app_name = app.get_name() or "(unnamed)"
-        for j in range(app.get_child_count()):
-            win = app.get_child_at_index(j)
-            if not win:
+    try:
+        for i in range(desktop.get_child_count()):
+            app = desktop.get_child_at_index(i)
+            if not app:
                 continue
-            states = win.get_state_set()
-            is_active = states.contains(Atspi.StateType.ACTIVE)
-            is_focused = states.contains(Atspi.StateType.FOCUSED)
-            win_title = win.get_name() or "(no title)"
-            win_role = win.get_role_name() or "(no role)"
-            marker = " ** ACTIVE **" if is_active else ""
-            if is_focused:
-                marker += " FOCUSED"
-            debug_lines.append(f"  app={app_name!r} win={win_title!r} role={win_role!r}{marker}")
-            if is_active:
-                active_found = True
-                title = win.get_name()
-                if not title:
-                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
-                    print(debug_msg, file=sys.stderr)
-                    return None, f"active window ({app_name!r}) has no title"
-                m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
-                if not m:
-                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
-                    print(debug_msg, file=sys.stderr)
-                    return None, f"no path found in active window ({app_name!r}) title: {title!r}"
-                path = os.path.expanduser(m.group(1))
-                if not os.path.isdir(path):
-                    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
-                    print(debug_msg, file=sys.stderr)
-                    return None, f"path from title is not a directory: {path!r} (title: {title!r})"
-                debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
-                print(debug_msg, file=sys.stderr)
-                return path, None
-    debug_msg = "\n".join(["AT-SPI debug — all windows:"] + debug_lines)
-    print(debug_msg, file=sys.stderr)
-    return None, "no active window found via AT-SPI"
+            app_name = app.get_name() or "(unnamed)"
+            app_pid = app.get_process_id()
+            for j in range(app.get_child_count()):
+                win = app.get_child_at_index(j)
+                if not win:
+                    continue
+                states = win.get_state_set()
+                is_active = states.contains(Atspi.StateType.ACTIVE)
+                is_focused = states.contains(Atspi.StateType.FOCUSED)
+                win_title = win.get_name() or "(no title)"
+                win_role = win.get_role_name() or "(no role)"
+                marker = " ** ACTIVE **" if is_active else ""
+                if is_focused:
+                    marker += " FOCUSED"
+                debug_lines.append(f"  app={app_name!r} pid={app_pid} win={win_title!r} role={win_role!r}{marker}")
+                if is_active:
+                    title = win.get_name()
+                    if not title:
+                        return None, f"active window ({app_name!r} pid={app_pid}) has no title"
+                    m = re.search(r'(~[^\s:]*|/[^\s:]*)', title)
+                    if not m:
+                        return None, f"no path found in active window ({app_name!r}) title: {title!r}"
+                    path = os.path.expanduser(m.group(1))
+                    if not os.path.isdir(path):
+                        return None, f"path from title is not a directory: {path!r} (title: {title!r})"
+                    return path, None
+        return None, "no active window found via AT-SPI"
+    finally:
+        for dl in debug_lines:
+            log.debug("AT-SPI: %s", dl)
 
 
 # --- Logic ---
