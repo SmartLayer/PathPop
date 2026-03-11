@@ -198,7 +198,10 @@ def select_item():
         load_dir(os.path.dirname(cwd))
         return
     path = os.path.join(cwd, item.rstrip("/"))
-    copy_and_exit(path)
+    if os.path.isdir(path):
+        load_dir(path)
+    else:
+        copy_and_exit(path)
 
 
 def force_select():
@@ -355,6 +358,7 @@ filter_var.trace_add("write", lambda *_: apply_filter())
 
 # --- Bindings: filter entry ---
 bind_break(filter_entry, "<Return>", select_item)
+bind_break(filter_entry, "<Shift-Return>", force_select)
 bind_break(filter_entry, "<Control-Return>", force_select)
 bind_break(filter_entry, "<Down>", lambda: move_selection(1))
 bind_break(filter_entry, "<Up>", lambda: move_selection(-1))
@@ -376,18 +380,27 @@ def on_filter_left(event):
         return "break"
 
 
+def on_filter_backspace(event):
+    if filter_var.get() == "":
+        go_up()
+        return "break"
+
+
 filter_entry.bind("<Right>", on_filter_right)
 filter_entry.bind("<Left>", on_filter_left)
+filter_entry.bind("<BackSpace>", on_filter_backspace)
 
 # --- Bindings: treeview ---
 bind_break(tree, "<Return>", select_item)
+bind_break(tree, "<Shift-Return>", force_select)
 bind_break(tree, "<Control-Return>", force_select)
 bind_break(tree, "<Right>", enter_dir)
 bind_break(tree, "<Left>", go_up)
+bind_break(tree, "<BackSpace>", go_up)
 tree.bind("<Double-1>", lambda e: (select_item(), "break")[-1])
 
 # Redirect typing from treeview back to the filter entry
-NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End'}
+NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End', 'BackSpace'}
 
 
 def on_tree_key(event):
