@@ -47,6 +47,8 @@ test_index = 0
 cwd = ""
 initial_cwd = ""
 all_items = []
+tilde_mode = False
+HOME = os.path.expanduser('~')
 
 # Widget references (set during UI creation)
 root = None
@@ -109,10 +111,16 @@ def detect_cwd():
 
 # --- Logic ---
 
+def tilde_display(path):
+    """Return a ~-prefixed display string for an absolute path."""
+    rel = os.path.relpath(path, HOME)
+    return '~' if rel == '.' else '~/' + rel
+
+
 def load_dir(dir_path):
     global cwd, all_items
     cwd = dir_path
-    path_var.set(dir_path)
+    path_var.set(tilde_display(dir_path) if tilde_mode else dir_path)
     all_items = []
     filter_var.set("")
 
@@ -190,6 +198,12 @@ def go_up():
     load_dir(os.path.dirname(cwd))
 
 
+def goto_home():
+    global tilde_mode
+    tilde_mode = True
+    load_dir(HOME)
+
+
 def select_item():
     item = get_selected_text()
     if item is None:
@@ -217,7 +231,10 @@ def force_select():
 
 
 def copy_and_exit(path):
-    rel = os.path.relpath(path, initial_cwd)
+    if tilde_mode:
+        rel = tilde_display(path)
+    else:
+        rel = os.path.relpath(path, initial_cwd)
     quoted = shlex.quote(rel)
     log.debug("copy_and_exit: path=%r rel=%r quoted=%r", path, rel, quoted)
     try:
@@ -386,9 +403,16 @@ def on_filter_backspace(event):
         return "break"
 
 
+def on_filter_tilde(event):
+    if filter_var.get() == "":
+        goto_home()
+        return "break"
+
+
 filter_entry.bind("<Right>", on_filter_right)
 filter_entry.bind("<Left>", on_filter_left)
 filter_entry.bind("<BackSpace>", on_filter_backspace)
+filter_entry.bind("<asciitilde>", on_filter_tilde)
 
 # --- Bindings: treeview ---
 bind_break(tree, "<Return>", select_item)
@@ -397,10 +421,11 @@ bind_break(tree, "<Control-Return>", force_select)
 bind_break(tree, "<Right>", enter_dir)
 bind_break(tree, "<Left>", go_up)
 bind_break(tree, "<BackSpace>", go_up)
+bind_break(tree, "<asciitilde>", goto_home)
 tree.bind("<Double-1>", lambda e: (select_item(), "break")[-1])
 
 # Redirect typing from treeview back to the filter entry
-NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End', 'BackSpace'}
+NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End', 'BackSpace', 'asciitilde'}
 
 
 def on_tree_key(event):
