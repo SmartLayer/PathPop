@@ -48,6 +48,9 @@ cwd = ""
 initial_cwd = ""
 all_items = []
 tilde_mode = False
+selection_mode = False
+checked_items = set()  # set of raw item names (e.g. "foo.txt", "bar/")
+display_to_item = {}   # maps displayed text -> raw item name (used in selection mode)
 HOME = os.path.expanduser('~')
 
 # Widget references (set during UI creation)
@@ -149,11 +152,21 @@ def load_dir(dir_path):
 
 
 def apply_filter(*_args):
+    global display_to_item
     tree.delete(*tree.get_children())
+    display_to_item = {}
     pat = filter_var.get().lower()
     for item in all_items:
+        if selection_mode and item == "..":
+            continue
         if pat == "" or pat in item.lower():
-            tree.insert("", tk.END, text=item)
+            if selection_mode:
+                prefix = "[x] " if item in checked_items else "[ ] "
+                display = prefix + item
+            else:
+                display = item
+            display_to_item[display] = item
+            tree.insert("", tk.END, text=display)
     children = tree.get_children()
     if children:
         tree.selection_set(children[0])
@@ -182,7 +195,75 @@ def get_selected_text():
     return tree.item(sel[0], "text")
 
 
+def get_selected_raw():
+    """Return the raw item name of the currently selected treeview item."""
+    display = get_selected_text()
+    if display is None:
+        return None
+    return display_to_item.get(display, display)
+
+
+def update_selection_count():
+    n = len(checked_items)
+    base = tilde_display(cwd) if tilde_mode else cwd
+    path_var.set(f"{base}  ({n} selected)")
+
+
+def enter_selection_mode():
+    global selection_mode
+    selection_mode = True
+    current = get_selected_raw()
+    if current and current != "..":
+        checked_items.add(current)
+    update_selection_count()
+    apply_filter()
+    # Re-select the item that was highlighted
+    if current:
+        _reselect(current)
+
+
+def exit_selection_mode():
+    global selection_mode
+    selection_mode = False
+    checked_items.clear()
+    path_var.set(tilde_display(cwd) if tilde_mode else cwd)
+    apply_filter()
+
+
+def toggle_selection_mode():
+    if selection_mode:
+        exit_selection_mode()
+    else:
+        enter_selection_mode()
+
+
+def toggle_check():
+    if not selection_mode:
+        return
+    item = get_selected_raw()
+    if item is None:
+        return
+    if item in checked_items:
+        checked_items.discard(item)
+    else:
+        checked_items.add(item)
+    update_selection_count()
+    apply_filter()
+    _reselect(item)
+
+
+def _reselect(raw_item):
+    """After apply_filter redraws, re-select the row matching raw_item."""
+    for child in tree.get_children():
+        if display_to_item.get(tree.item(child, "text")) == raw_item:
+            tree.selection_set(child)
+            tree.see(child)
+            return
+
+
 def enter_dir():
+    if selection_mode:
+        return
     item = get_selected_text()
     if item is None:
         return
@@ -195,16 +276,28 @@ def enter_dir():
 
 
 def go_up():
+    if selection_mode:
+        return
     load_dir(os.path.dirname(cwd))
 
 
 def goto_home():
+    if selection_mode:
+        return
     global tilde_mode
     tilde_mode = True
     load_dir(HOME)
 
 
 def select_item():
+    if selection_mode:
+        if not checked_items:
+            return
+        paths = []
+        for item in checked_items:
+            paths.append(os.path.join(cwd, item.rstrip("/")))
+        copy_multi_and_exit(paths)
+        return
     item = get_selected_text()
     if item is None:
         return
@@ -216,18 +309,6 @@ def select_item():
         load_dir(path)
     else:
         copy_and_exit(path)
-
-
-def force_select():
-    """Copy highlighted item's path regardless of type (file or directory)."""
-    item = get_selected_text()
-    if item is None:
-        return
-    if item == "..":
-        path = os.path.dirname(cwd)
-    else:
-        path = os.path.join(cwd, item.rstrip("/"))
-    copy_and_exit(path)
 
 
 def copy_and_exit(path):
@@ -268,6 +349,54 @@ def copy_and_exit(path):
             log.error("ydotool paste failed (rc=%d): %s", result.returncode, result.stderr.decode(errors='replace'))
         else:
             log.debug("ydotool paste keystroke sent")
+    except OSError as e:
+        log.error("ydotool OSError: %s", e)
+    if test_mode:
+        time.sleep(0.1)
+        try:
+            subprocess.run(['ydotool', 'key', '28:1', '28:0'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+    sys.exit(0)
+
+
+def copy_multi_and_exit(paths):
+    parts = []
+    for path in sorted(paths):
+        if tilde_mode:
+            rel = tilde_display(path)
+        else:
+            rel = os.path.relpath(path, initial_cwd)
+        parts.append(shlex.quote(rel))
+    combined = " ".join(parts)
+    log.debug("copy_multi_and_exit: %r", combined)
+    try:
+        if is_wayland:
+            proc = subprocess.Popen(['wl-copy'],
+                             stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc.stdin.write(combined.encode())
+            proc.stdin.close()
+        else:
+            proc = subprocess.Popen(['xclip', '-selection', 'clipboard'],
+                             stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate(combined.encode(), timeout=5)
+            if proc.returncode != 0:
+                log.error("xclip failed (rc=%d): %s", proc.returncode, stderr.decode(errors='replace'))
+    except OSError as e:
+        log.error("clipboard copy OSError: %s", e)
+    except subprocess.TimeoutExpired:
+        log.error("clipboard copy timed out")
+        proc.kill()
+    root.destroy()
+    time.sleep(0.3)
+    try:
+        result = subprocess.run(['ydotool', 'key', '29:1', '42:1', '47:1', '47:0', '42:0', '29:0'],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0:
+            log.error("ydotool paste failed (rc=%d): %s", result.returncode, result.stderr.decode(errors='replace'))
     except OSError as e:
         log.error("ydotool OSError: %s", e)
     if test_mode:
@@ -375,8 +504,8 @@ filter_var.trace_add("write", lambda *_: apply_filter())
 
 # --- Bindings: filter entry ---
 bind_break(filter_entry, "<Return>", select_item)
-bind_break(filter_entry, "<Shift-Return>", force_select)
-bind_break(filter_entry, "<Control-Return>", force_select)
+bind_break(filter_entry, "<Shift-Return>", toggle_selection_mode)
+bind_break(filter_entry, "<Control-Return>", toggle_selection_mode)
 bind_break(filter_entry, "<Down>", lambda: move_selection(1))
 bind_break(filter_entry, "<Up>", lambda: move_selection(-1))
 bind_break(filter_entry, "<Next>", lambda: move_selection(10))
@@ -409,15 +538,23 @@ def on_filter_tilde(event):
         return "break"
 
 
+def on_filter_space(event):
+    if selection_mode and filter_var.get() == "":
+        toggle_check()
+        return "break"
+
+
 filter_entry.bind("<Right>", on_filter_right)
 filter_entry.bind("<Left>", on_filter_left)
 filter_entry.bind("<BackSpace>", on_filter_backspace)
 filter_entry.bind("<asciitilde>", on_filter_tilde)
+filter_entry.bind("<space>", on_filter_space)
 
 # --- Bindings: treeview ---
 bind_break(tree, "<Return>", select_item)
-bind_break(tree, "<Shift-Return>", force_select)
-bind_break(tree, "<Control-Return>", force_select)
+bind_break(tree, "<Shift-Return>", toggle_selection_mode)
+bind_break(tree, "<Control-Return>", toggle_selection_mode)
+bind_break(tree, "<space>", toggle_check)
 bind_break(tree, "<Right>", enter_dir)
 bind_break(tree, "<Left>", go_up)
 bind_break(tree, "<BackSpace>", go_up)
@@ -438,7 +575,13 @@ def on_tree_key(event):
 tree.bind("<Key>", on_tree_key)
 
 # --- Escape ---
-root.bind("<Escape>", lambda e: sys.exit(0))
+def on_escape():
+    if selection_mode:
+        exit_selection_mode()
+    else:
+        sys.exit(0)
+
+root.bind("<Escape>", lambda e: on_escape())
 
 # --- Start ---
 root.deiconify()
