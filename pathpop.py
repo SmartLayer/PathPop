@@ -216,6 +216,7 @@ def enter_selection_mode():
     if current and current != "..":
         checked_items.add(current)
     update_selection_count()
+    status_var.set(HINT_SELECTION)
     apply_filter()
     # Re-select the item that was highlighted
     if current:
@@ -227,6 +228,7 @@ def exit_selection_mode():
     selection_mode = False
     checked_items.clear()
     path_var.set(tilde_display(cwd) if tilde_mode else cwd)
+    status_var.set(HINT_NORMAL)
     apply_filter()
 
 
@@ -487,7 +489,15 @@ scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
 tree.configure(yscrollcommand=scrollbar.set)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 tree.pack(fill=tk.BOTH, expand=True)
-frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=(2, 6))
+frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=(2, 0))
+
+# Status bar
+HINT_NORMAL = "Enter to choose. Shift+Enter for multi-select"
+HINT_SELECTION = "Space to toggle. Enter to confirm. Esc to cancel"
+status_var = tk.StringVar(value=HINT_NORMAL)
+status_bar = ttk.Label(root, textvariable=status_var, font=("monospace", 8),
+                        foreground="grey50")
+status_bar.pack(fill=tk.X, padx=6, pady=(0, 4))
 
 # Style the treeview font and selection colours
 style = ttk.Style()
