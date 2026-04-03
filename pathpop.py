@@ -27,6 +27,7 @@ import tkinter as tk
 import tkinter.messagebox as messagebox
 import tkinter.ttk as ttk
 import tkinter.font as tkfont
+from datetime import datetime
 
 # --- Logging ---
 debug_mode = os.environ.get('PATHPOP_DEBUG', '') != ''
@@ -47,6 +48,9 @@ test_index = 0
 cwd = ""
 initial_cwd = ""
 all_items = []
+item_mtimes = {}
+sort_column = "name"
+sort_reverse = False
 tilde_mode = False
 selection_mode = False
 checked_items = set()  # set of raw item names (e.g. "foo.txt", "bar/")
@@ -121,17 +125,16 @@ def tilde_display(path):
 
 
 def load_dir(dir_path):
-    global cwd, all_items
+    global cwd, all_items, item_mtimes
     cwd = dir_path
     path_var.set(tilde_display(dir_path) if tilde_mode else dir_path)
     all_items = []
+    item_mtimes = {}
     filter_var.set("")
 
     if dir_path != "/":
         all_items.append("..")
 
-    dirs = []
-    files = []
     try:
         entries = os.listdir(dir_path)
     except OSError:
@@ -139,16 +142,67 @@ def load_dir(dir_path):
 
     for name in entries:
         full = os.path.join(dir_path, name)
+        try:
+            mtime = os.path.getmtime(full)
+        except OSError:
+            mtime = 0
         if os.path.isdir(full):
-            dirs.append(name + "/")
+            item_name = name + "/"
         else:
-            files.append(name)
+            item_name = name
+        all_items.append(item_name)
+        item_mtimes[item_name] = mtime
 
-    dirs.sort(key=str.lower)
-    files.sort(key=str.lower)
-    all_items.extend(dirs)
-    all_items.extend(files)
+    sort_items()
     apply_filter()
+
+
+def format_mtime(t):
+    """Format a timestamp for display."""
+    return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
+
+
+def sort_items():
+    """Sort all_items based on current sort column and direction."""
+    global all_items
+    has_parent = ".." in all_items
+    if has_parent:
+        all_items.remove("..")
+
+    if sort_column == "name":
+        dirs = [x for x in all_items if x.endswith("/")]
+        files = [x for x in all_items if not x.endswith("/")]
+        dirs.sort(key=str.lower, reverse=sort_reverse)
+        files.sort(key=str.lower, reverse=sort_reverse)
+        all_items = dirs + files
+    else:
+        all_items.sort(key=lambda x: item_mtimes.get(x, 0), reverse=sort_reverse)
+
+    if has_parent:
+        all_items.insert(0, "..")
+
+
+def sort_by_column(col):
+    """Handle click on a column header to change sort order."""
+    global sort_column, sort_reverse
+    if sort_column == col:
+        sort_reverse = not sort_reverse
+    else:
+        sort_column = col
+        sort_reverse = (col == "date")
+    current = get_selected_raw()
+    sort_items()
+    apply_filter()
+    if current:
+        _reselect(current)
+    update_headings()
+
+
+def update_headings():
+    """Update column header text to reflect current sort."""
+    arrow = " \u25bc" if sort_reverse else " \u25b2"
+    tree.heading("name", text="Name" + (arrow if sort_column == "name" else ""))
+    tree.heading("date", text="Date" + (arrow if sort_column == "date" else ""))
 
 
 def apply_filter(*_args):
@@ -166,7 +220,8 @@ def apply_filter(*_args):
             else:
                 display = item
             display_to_item[display] = item
-            tree.insert("", tk.END, text=display)
+            date_str = format_mtime(item_mtimes[item]) if item in item_mtimes else ""
+            tree.insert("", tk.END, values=(display, date_str))
     children = tree.get_children()
     if children:
         tree.selection_set(children[0])
@@ -192,7 +247,7 @@ def get_selected_text():
     sel = tree.selection()
     if not sel:
         return None
-    return tree.item(sel[0], "text")
+    return tree.set(sel[0], "name")
 
 
 def get_selected_raw():
@@ -257,7 +312,7 @@ def toggle_check():
 def _reselect(raw_item):
     """After apply_filter redraws, re-select the row matching raw_item."""
     for child in tree.get_children():
-        if display_to_item.get(tree.item(child, "text")) == raw_item:
+        if display_to_item.get(tree.set(child, "name")) == raw_item:
             tree.selection_set(child)
             tree.see(child)
             return
@@ -468,7 +523,7 @@ filter_var = tk.StringVar()
 
 # --- UI ---
 root.title("fzf")
-root.geometry("620x520")
+root.geometry("720x520")
 root.attributes('-topmost', True)
 root.protocol("WM_DELETE_WINDOW", lambda: sys.exit(0))
 
@@ -483,8 +538,11 @@ filter_entry.pack(fill=tk.X, padx=6, pady=(2, 0))
 
 # Treeview (flat list, single column showing item text)
 frame = ttk.Frame(root)
-tree = ttk.Treeview(frame, show="tree", selectmode="browse")
-tree.column("#0", stretch=True)
+tree = ttk.Treeview(frame, columns=("name", "date"), show="headings", selectmode="browse")
+tree.heading("name", text="Name \u25b2", anchor=tk.W, command=lambda: sort_by_column("name"))
+tree.heading("date", text="Date", anchor=tk.W, command=lambda: sort_by_column("date"))
+tree.column("name", stretch=True, anchor=tk.W)
+tree.column("date", width=150, stretch=False, anchor=tk.W)
 scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
 tree.configure(yscrollcommand=scrollbar.set)
 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
