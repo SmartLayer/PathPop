@@ -346,6 +346,14 @@ def goto_home():
     load_dir(HOME)
 
 
+def goto_root():
+    if selection_mode:
+        return
+    global tilde_mode
+    tilde_mode = False
+    load_dir("/")
+
+
 def select_item():
     if selection_mode:
         if not checked_items:
@@ -606,6 +614,12 @@ def on_filter_tilde(event):
         return "break"
 
 
+def on_filter_slash(event):
+    if filter_var.get() == "":
+        goto_root()
+        return "break"
+
+
 def on_filter_space(event):
     if selection_mode and filter_var.get() == "":
         toggle_check()
@@ -616,6 +630,7 @@ filter_entry.bind("<Right>", on_filter_right)
 filter_entry.bind("<Left>", on_filter_left)
 filter_entry.bind("<BackSpace>", on_filter_backspace)
 filter_entry.bind("<asciitilde>", on_filter_tilde)
+filter_entry.bind("<slash>", on_filter_slash)
 filter_entry.bind("<space>", on_filter_space)
 
 # --- Bindings: treeview ---
@@ -627,10 +642,11 @@ bind_break(tree, "<Right>", enter_dir)
 bind_break(tree, "<Left>", go_up)
 bind_break(tree, "<BackSpace>", go_up)
 bind_break(tree, "<asciitilde>", goto_home)
+bind_break(tree, "<slash>", goto_root)
 tree.bind("<Double-1>", lambda e: (select_item(), "break")[-1])
 
 # Redirect typing from treeview back to the filter entry
-NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End', 'BackSpace', 'asciitilde'}
+NAV_KEYS = {'Up', 'Down', 'Left', 'Right', 'Return', 'space', 'Next', 'Prior', 'Home', 'End', 'BackSpace', 'asciitilde', 'slash'}
 
 
 def on_tree_key(event):
